@@ -3,7 +3,7 @@ from copy import deepcopy
 from math import isclose
 
 from numpy.testing import assert_allclose
-from mpactpy import Module, Pin, RectangularPinMesh as RectMesh, GeneralCylindricalPinMesh as GCylMesh
+from mpactpy import Pin, RectangularPinMesh as RectMesh, GeneralCylindricalPinMesh as GCylMesh
 
 from coreforge.shapes import Circle, Stadium, Rectangle, Square
 from coreforge.geometry_elements.msre import Block
@@ -160,9 +160,10 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
 
     salt     = mpact_builder.build_material(salt)
     graphite = mpact_builder.build_material(graphite)
+    materials = {material: material for material in (salt, graphite)}
 
     # Stadium Fuel Channels
-    core = mpact_builder.build(stadium_fuel_chan_block).with_shared_materials()
+    core = mpact_builder.build(stadium_fuel_chan_block).with_shared_materials(materials)
 
     assert len(core.materials) == 2
     assert salt in core.materials
@@ -219,14 +220,13 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
                      [W_chan_S_cap , corner      , H_spacer     , H_spacer     , corner      , E_chan_S_cap ],
                      [corner       , S_chan_W_cap, S_chan_W_flat, S_chan_E_flat, S_chan_E_cap, corner       ]]
 
-    assert core.modules[0].pin_map == Module(1, expected_map).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    assert core.modules[0].pin_map == expected_map
 
 
 
     # Stadium Fuel Channels (Divided into Quadrants)
     mpact_build_specs = mpact_builder.msre.Block.Specs(divide_into_quadrants=True)
-    core = mpact_builder.build(stadium_fuel_chan_block, mpact_build_specs).with_shared_materials()
+    core = mpact_builder.build(stadium_fuel_chan_block, mpact_build_specs).with_shared_materials(materials)
 
     assert len(core.modules) == 4
     assert isclose(core.mod_dim['X'], block_pitch*0.5)
@@ -250,19 +250,12 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
                       [H_spacer     , corner      , E_chan_S_cap ],
                       [S_chan_E_flat, S_chan_E_cap, corner       ]]]
 
-    module_map = core.lattices[0].module_map
-    assert module_map[0][0].pin_map == Module(1, expected_maps[0]).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
-    assert module_map[0][1].pin_map == Module(1, expected_maps[1]).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
-    assert module_map[1][0].pin_map == Module(1, expected_maps[2]).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
-    assert module_map[1][1].pin_map == Module(1, expected_maps[3]).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    actual_maps = [module.pin_map for row in core.lattices[0].module_map for module in row]
+    assert actual_maps == expected_maps
 
 
     # Rectangular Fuel Channels
-    core = mpact_builder.build(rectangle_fuel_chan_block).with_shared_materials()
+    core = mpact_builder.build(rectangle_fuel_chan_block).with_shared_materials(materials)
 
     N_chan_E_cap  = Pin(RectMesh([    fcr, ccl], [ccl-fcr, ccl], zval, [1,1], [1,1], divz), [salt, graphite, graphite, graphite])
     N_chan_W_cap  = Pin(RectMesh([ccl-fcr, ccl], [ccl-fcr, ccl], zval, [1,1], [1,1], divz), [graphite, salt, graphite, graphite])
@@ -280,12 +273,11 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
                      [W_chan_S_cap , corner      , H_spacer     , H_spacer     , corner      , E_chan_S_cap ],
                      [corner       , S_chan_W_cap, S_chan_W_flat, S_chan_E_flat, S_chan_E_cap, corner       ]]
 
-    assert core.modules[0].pin_map == Module(1, expected_map).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    assert core.modules[0].pin_map == expected_map
 
 
     # Circular Fuel Channels
-    core             = mpact_builder.build(circle_fuel_chan_block).with_shared_materials()
+    core             = mpact_builder.build(circle_fuel_chan_block).with_shared_materials(materials)
 
     cap_cell_length  = (half_block_pitch)*0.5
     radii            = [fuel_chan_r, cap_cell_length]
@@ -306,24 +298,22 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
                         [W_chan_S_cap, prism       , prism       , E_chan_S_cap],
                         [prism       , S_chan_W_cap, S_chan_E_cap, prism       ]]
 
-    assert core.modules[0].pin_map == Module(1, expected_map).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    assert core.modules[0].pin_map == expected_map
 
 
     # No Channels
-    core         = mpact_builder.build(no_chan_block).with_shared_materials()
+    core         = mpact_builder.build(no_chan_block).with_shared_materials(materials)
 
     expected_map = [[prism , prism, prism, prism],
                     [prism , prism, prism, prism],
                     [prism , prism, prism, prism],
                     [prism , prism, prism, prism]]
 
-    assert core.modules[0].pin_map == Module(1, expected_map).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    assert core.modules[0].pin_map == expected_map
 
 
     # Control Rod Channels
-    core             = mpact_builder.build(control_chan_block).with_shared_materials()
+    core             = mpact_builder.build(control_chan_block).with_shared_materials(materials)
 
     cap_cell_length  = control_chan_r - block_pitch*0.5
     half_flat_length = (block_pitch - cap_cell_length*4.0)*0.5
@@ -364,5 +354,4 @@ def test_mpact_builder(stadium_fuel_chan_block, rectangle_fuel_chan_block,
                         [W_chan_S_cap , corner      , H_spacer     , H_spacer     , corner      , E_chan_S_cap ],
                         [corner       , S_chan_W_cap, S_chan_W_flat, S_chan_E_flat, S_chan_E_cap, corner       ]]
 
-    assert core.modules[0].pin_map == Module(1, expected_map).with_shared_materials(
-        {material: material for material in core.materials}).pin_map
+    assert core.modules[0].pin_map == expected_map
