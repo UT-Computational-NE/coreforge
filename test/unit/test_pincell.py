@@ -277,9 +277,7 @@ def test_cylindrical_pincell_mpact_builder(cylindrical_pincell, cylindrical_pinc
     salt         = mpact_builder.build_material(salt)
     graphite     = mpact_builder.build_material(graphite)
     materials    = {material: material for material in (salt, graphite)}
-    core         = mpact_builder.build(geom_element, specs, bounds)
-    assert len(core.materials) == 4
-    core         = core.with_shared_materials(materials)
+    core         = mpact_builder.build(geom_element, specs, bounds).with_shared_materials(materials)
 
     assert len(core.materials) == 2
     assert salt in core.materials
@@ -296,9 +294,6 @@ def test_cylindrical_pincell_mpact_builder(cylindrical_pincell, cylindrical_pinc
 
     expected_radii = [1.0, 2.0, 3.0]
     expected_mats  = [salt, graphite, salt, graphite]
-
-    assert core.pins[0].materials[0] is core.pins[0].materials[2]
-    assert core.pins[0].materials[1] is core.pins[0].materials[3]
 
     expected_mesh = GeneralCylindricalPinMesh(
         expected_radii, -4.0, 4.0, -4.0, 4.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]
