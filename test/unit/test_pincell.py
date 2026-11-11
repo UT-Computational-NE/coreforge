@@ -191,9 +191,10 @@ def test_pincell_mpact_builder(pincell, mpact_voxel_specs, salt, graphite):
     bounds = mpact_builder.Bounds(X=mpact_builder.AxisBounds(min=0.0, max=32.0),
                                   Y=mpact_builder.AxisBounds(min=0.0, max=32.0),
                                   Z=mpact_builder.AxisBounds(min=0.0, max=1.0))
-    core = mpact_builder.build(geom_element, specs, bounds)
     salt = mpact_builder.build_material(salt)
     graphite = mpact_builder.build_material(graphite)
+    materials = {material: material for material in (salt, graphite)}
+    core = mpact_builder.build(geom_element, specs, bounds).with_shared_materials(materials)
 
     assert len(core.materials) == 2
     assert salt in core.materials
@@ -212,7 +213,9 @@ def test_pincell_mpact_builder(pincell, mpact_voxel_specs, salt, graphite):
     expected_yvals = [16.0, 32.0]
     expected_mats = [salt, salt, graphite, salt]
 
-    assert core.pins[0] == Pin(RectangularPinMesh(expected_xvals, expected_yvals, [1.0], [1, 1], [1, 1], [1]), expected_mats)
+    expected_mesh = RectangularPinMesh(expected_xvals, expected_yvals, [1.0], [1, 1], [1, 1], [1])
+    expected_pin = Pin(expected_mesh, expected_mats)
+    assert core.pins[0] == expected_pin
 
 
 def test_cylindrical_pincell_initialization(cylindrical_pincell):
@@ -271,9 +274,10 @@ def test_cylindrical_pincell_mpact_builder(cylindrical_pincell, cylindrical_pinc
     specs        = cylindrical_pincell_mpact_specs
     bounds       = mpact_builder.Bounds(X=mpact_builder.AxisBounds(min=-4.0, max=4.0),
                                         Y=mpact_builder.AxisBounds(min=-4.0, max=4.0))
-    core         = mpact_builder.build(geom_element, specs, bounds)
     salt         = mpact_builder.build_material(salt)
     graphite     = mpact_builder.build_material(graphite)
+    materials    = {material: material for material in (salt, graphite)}
+    core         = mpact_builder.build(geom_element, specs, bounds).with_shared_materials(materials)
 
     assert len(core.materials) == 2
     assert salt in core.materials
@@ -291,10 +295,14 @@ def test_cylindrical_pincell_mpact_builder(cylindrical_pincell, cylindrical_pinc
     expected_radii = [1.0, 2.0, 3.0]
     expected_mats  = [salt, graphite, salt, graphite]
 
-    assert core.pins[0] == Pin(GeneralCylindricalPinMesh(expected_radii, -4.0, 4.0, -4.0, 4.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]), expected_mats)
+    expected_mesh = GeneralCylindricalPinMesh(
+        expected_radii, -4.0, 4.0, -4.0, 4.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]
+    )
+    expected_pin = Pin(expected_mesh, expected_mats)
+    assert core.pins[0] == expected_pin
 
     specs.divide_into_quadrants = True
-    core = mpact_builder.build(geom_element, specs, bounds)
+    core = mpact_builder.build(geom_element, specs, bounds).with_shared_materials(materials)
 
     assert isclose(core.mod_dim['X'], 4.0)
     assert isclose(core.mod_dim['Y'], 4.0)
@@ -306,10 +314,16 @@ def test_cylindrical_pincell_mpact_builder(cylindrical_pincell, cylindrical_pinc
            "SW" : core.lattices[0].module_map[1][0].pin_map[0][0],
            "SE" : core.lattices[0].module_map[1][1].pin_map[0][0]}
 
-    assert pin["NW"] == Pin(GeneralCylindricalPinMesh(expected_radii, -4.0, 0.0,  0.0, 4.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]), expected_mats)
-    assert pin["NE"] == Pin(GeneralCylindricalPinMesh(expected_radii,  0.0, 4.0,  0.0, 4.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]), expected_mats)
-    assert pin["SW"] == Pin(GeneralCylindricalPinMesh(expected_radii, -4.0, 0.0, -4.0, 0.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]), expected_mats)
-    assert pin["SE"] == Pin(GeneralCylindricalPinMesh(expected_radii,  0.0, 4.0, -4.0, 0.0, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]), expected_mats)
+    expected_bounds = {"NW": (-4.0, 0.0,  0.0, 4.0),
+                       "NE": ( 0.0, 4.0,  0.0, 4.0),
+                       "SW": (-4.0, 0.0, -4.0, 0.0),
+                       "SE": ( 0.0, 4.0, -4.0, 0.0)}
+    for quadrant, mesh_bounds in expected_bounds.items():
+        expected_mesh = GeneralCylindricalPinMesh(
+            expected_radii, *mesh_bounds, [1.0], [1, 1, 1], [1, 1, 1, 1], [1]
+        )
+        expected_pin = Pin(expected_mesh, expected_mats)
+        assert pin[quadrant] == expected_pin
 
 
 def test_cylindrical_pincell_min_zone_thickness(salt, graphite):
