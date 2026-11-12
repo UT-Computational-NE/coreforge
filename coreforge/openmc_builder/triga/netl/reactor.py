@@ -236,8 +236,12 @@ def build_core_element(
 ) -> openmc.Universe:
     """Build an OpenMC universe from resolved core-cell geometry specifications.
 
-    Later element placements cover earlier placements within their finite
-    regions. Native element builders retain their exact conical surfaces.
+    Each element's finite geometry and background are in a translated universe.
+    At single-element locations, its parent cell fills the space outside the
+    fixed grid plates, so axial movement changes only the cell's translation.
+    Multiple placements retain finite parent regions and overlap exclusions;
+    changing their positions requires rebuilding those regions too.
+    Native element builders retain their exact conical surfaces.
 
     Parameters
     ----------
@@ -253,7 +257,6 @@ def build_core_element(
 
     cells        = []
     outer_region = None
-    grid_regions = None
 
     grid_plate_specs = (core_cell_specs.upper_grid_plate,
                         core_cell_specs.lower_grid_plate)
@@ -272,34 +275,34 @@ def build_core_element(
         grid_cell = openmc.Cell(fill   = grid_plate.material.openmc_material,
                                 region = region)
         cells.append(grid_cell)
-        grid_regions = grid_cell.region if grid_regions is None else grid_regions | grid_cell.region
         outer_region = ~grid_cell.region if outer_region is None else outer_region & ~grid_cell.region
 
-    element_regions = []
+    multiple_elements = len(core_cell_specs.elements) > 1
     for element_specs in reversed(core_cell_specs.elements):
         element       = element_specs.geometry
-        bottom_z      = element_specs.bottom_axial_position
-        top_z         = bottom_z + element.length
-        bottom_plane   = openmc.ZPlane(bottom_z)
-        top_plane      = openmc.ZPlane(top_z)
-        z_translation  = bottom_z
-        # PinCellStacks already use element.bottom_pos, so remove it from the translation
-        if isinstance(element, PinCellStack):
-            z_translation -= element.bottom_pos
-        translation = (element_specs.x0, element_specs.y0, z_translation)
-        element_region = _build_element_region(element).translate(translation)
-        element_region &= +bottom_plane & -top_plane
-        outer_region = ~element_region if outer_region is None else outer_region & ~element_region
-        region = openmc.Intersection([element_region] + [~previous for previous in element_regions])
-        if grid_regions is not None:
-            region &= ~grid_regions
-        element_regions.append(element_region)
-        element_cell = openmc.Cell(fill=build(element), region=region)
+        native_bottom = element.bottom_pos if isinstance(element, PinCellStack) else 0.0
+        translation = (element_specs.x0, element_specs.y0,
+                       element_specs.bottom_axial_position - native_bottom)
+        element_region = _build_element_region(element)
+        element_region &= +openmc.ZPlane(native_bottom) & -openmc.ZPlane(native_bottom + element.length)
+        element_universe = openmc.Universe(cells=[
+            openmc.Cell(fill=build(element), region=element_region),
+            openmc.Cell(fill=core_cell_specs.outer_material.openmc_material, region=~element_region),
+        ])
+
+        region = outer_region
+        if multiple_elements:
+            placed_region = element_region.translate(translation)
+            region = placed_region if region is None else placed_region & region
+            outer_region = ~placed_region if outer_region is None else outer_region & ~placed_region
+        element_cell = openmc.Cell(fill=element_universe, region=region,
+                                  name=f"{core_cell_specs.location} {element.name}")
         element_cell.translation = translation
         cells.append(element_cell)
 
-    cells.append(openmc.Cell(fill=core_cell_specs.outer_material.openmc_material,
-                             region=outer_region))
+    if not core_cell_specs.elements or multiple_elements:
+        cells.append(openmc.Cell(fill=core_cell_specs.outer_material.openmc_material,
+                                 region=outer_region))
 
     return openmc.Universe(cells=cells)
 
