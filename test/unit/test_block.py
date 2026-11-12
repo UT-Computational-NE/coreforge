@@ -86,9 +86,10 @@ def test_block_mpact_builder(block, mpact_voxel_specs, salt, graphite):
     bounds = mpact_builder.Bounds(X=mpact_builder.AxisBounds(min=0.0, max=5.0),
                                   Y=mpact_builder.AxisBounds(min=0.0, max=5.0),
                                   Z=mpact_builder.AxisBounds(min=0.0, max=1.0))
-    core = mpact_builder.build(geom_element, specs, bounds)
     salt = mpact_builder.build_material(salt)
     graphite = mpact_builder.build_material(graphite)
+    materials = {material: material for material in (salt, graphite)}
+    core = mpact_builder.build(geom_element, specs, bounds).with_shared_materials(materials)
 
     assert len(core.materials) == 1
     assert salt in core.materials
@@ -106,4 +107,6 @@ def test_block_mpact_builder(block, mpact_voxel_specs, salt, graphite):
     expected_yvals = [2.5, 5.0]
     expected_mats = [salt, salt, salt, salt]
 
-    assert core.pins[0] == Pin(RectangularPinMesh(expected_xvals, expected_yvals, [1.0], [1, 1], [1, 1], [1]), expected_mats)
+    expected_mesh = RectangularPinMesh(expected_xvals, expected_yvals, [1.0], [1, 1], [1, 1], [1])
+    expected_pin = Pin(expected_mesh, expected_mats)
+    assert core.pins[0] == expected_pin

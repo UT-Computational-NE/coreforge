@@ -397,8 +397,7 @@ class Reactor(Builder[geometry_elements_triga_netl.Reactor]):
         assemblies_to_overlay = {a for a in core.assemblies if lattices_to_overlay.intersection(a.lattices)}
 
         # Create overlay masks
-        pin_mask:      mpactpy.Pin.OverlayMask      = set(core.materials)
-        module_mask:   mpactpy.Module.OverlayMask   = {pin:      pin_mask      for pin      in pins_to_overlay}
+        module_mask:   mpactpy.Module.OverlayMask   = {pin:      None          for pin      in pins_to_overlay}
         lattice_mask:  mpactpy.Lattice.OverlayMask  = {module:   module_mask   for module   in modules_to_overlay}
         assembly_mask: mpactpy.Assembly.OverlayMask = {lattice:  lattice_mask  for lattice  in lattices_to_overlay}
         include_only:  mpactpy.Core.OverlayMask     = {assembly: assembly_mask for assembly in assemblies_to_overlay}
