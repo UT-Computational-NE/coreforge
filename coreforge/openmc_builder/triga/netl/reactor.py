@@ -1,8 +1,6 @@
-from math import hypot, isclose
 from typing import Tuple
 
 import openmc
-from mpactpy.utils import ROUNDING_RELATIVE_TOLERANCE as TOL
 
 from coreforge.geometry_elements.pincell_stack import PinCellStack
 from coreforge.geometry_elements.triga import FuelElement, GraphiteElement
@@ -238,11 +236,12 @@ def build_core_element(
 ) -> openmc.Universe:
     """Build an OpenMC universe from resolved core-cell geometry specifications.
 
-    Later element placements cover earlier placements within their finite
-    regions. Native element builders retain their exact conical surfaces.
-    A movable element is placed in a fixed channel cell, named by its core
-    location and element, so that moving it changes only that cell's
-    translation.
+    Each element's finite geometry and background are in a translated universe.
+    At single-element locations, its parent cell fills the space outside the
+    fixed grid plates, so axial movement changes only the cell's translation.
+    Multiple placements retain finite parent regions and overlap exclusions;
+    changing their positions requires rebuilding those regions too.
+    Native element builders retain their exact conical surfaces.
 
     Parameters
     ----------
@@ -258,7 +257,6 @@ def build_core_element(
 
     cells        = []
     outer_region = None
-    grid_regions = None
 
     grid_plate_specs = (core_cell_specs.upper_grid_plate,
                         core_cell_specs.lower_grid_plate)
@@ -277,125 +275,36 @@ def build_core_element(
         grid_cell = openmc.Cell(fill   = grid_plate.material.openmc_material,
                                 region = region)
         cells.append(grid_cell)
-        grid_regions = grid_cell.region if grid_regions is None else grid_regions | grid_cell.region
         outer_region = ~grid_cell.region if outer_region is None else outer_region & ~grid_cell.region
 
-    element_regions = []
+    multiple_elements = len(core_cell_specs.elements) > 1
     for element_specs in reversed(core_cell_specs.elements):
         element       = element_specs.geometry
-        bottom_z      = element_specs.bottom_axial_position
-        top_z         = bottom_z + element.length
-        z_translation = bottom_z
-        # PinCellStacks already use element.bottom_pos, so remove it from the translation
-        if isinstance(element, PinCellStack):
-            z_translation -= element.bottom_pos
-        translation = (element_specs.x0, element_specs.y0, z_translation)
-        if element_specs.movable:
-            assert len(core_cell_specs.elements) == 1, \
-                f"Movable element '{element.name}' must be the only element in its core cell."
-            element_cell  = _build_channel_cell(core_cell_specs, element_specs)
-            placed_region = element_cell.region
-        else:
-            bottom_plane   = openmc.ZPlane(bottom_z)
-            top_plane      = openmc.ZPlane(top_z)
-            element_region = _build_element_region(element).translate(translation)
-            element_region &= +bottom_plane & -top_plane
-            placed_region  = element_region
-            region = openmc.Intersection([element_region] + [~previous for previous in element_regions])
-            if grid_regions is not None:
-                region &= ~grid_regions
-            element_regions.append(element_region)
-            element_cell = openmc.Cell(fill=build(element), region=region)
-        outer_region = ~placed_region if outer_region is None else outer_region & ~placed_region
+        native_bottom = element.bottom_pos if isinstance(element, PinCellStack) else 0.0
+        translation = (element_specs.x0, element_specs.y0,
+                       element_specs.bottom_axial_position - native_bottom)
+        element_region = _build_element_region(element)
+        element_region &= +openmc.ZPlane(native_bottom) & -openmc.ZPlane(native_bottom + element.length)
+        element_universe = openmc.Universe(cells=[
+            openmc.Cell(fill=build(element), region=element_region),
+            openmc.Cell(fill=core_cell_specs.outer_material.openmc_material, region=~element_region),
+        ])
+
+        region = outer_region
+        if multiple_elements:
+            placed_region = element_region.translate(translation)
+            region = placed_region if region is None else placed_region & region
+            outer_region = ~placed_region if outer_region is None else outer_region & ~placed_region
+        element_cell = openmc.Cell(fill=element_universe, region=region,
+                                  name=f"{core_cell_specs.location} {element.name}")
         element_cell.translation = translation
         cells.append(element_cell)
 
-    cells.append(openmc.Cell(fill=core_cell_specs.outer_material.openmc_material,
-                             region=outer_region))
+    if not core_cell_specs.elements or multiple_elements:
+        cells.append(openmc.Cell(fill=core_cell_specs.outer_material.openmc_material,
+                                 region=outer_region))
 
     return openmc.Universe(cells=cells)
-
-
-def _build_channel_cell(
-    core_cell_specs: geometry_elements_triga_netl.Reactor.CoreCellSpecs,
-    element_specs: geometry_elements_triga_netl.Reactor.CoreCellSpecs.ElementSpecs,
-) -> openmc.Cell:
-    """Build the fixed channel cell of a movable element.
-
-    The channel is the grid-plate penetration shared by every grid plate in
-    the core cell, unbounded axially. It is filled with a universe holding the
-    element in its native builder coordinates and the core cell's outer
-    material everywhere else, so none of the channel's surfaces depend on the
-    element's axial position.
-
-    Parameters
-    ----------
-    core_cell_specs : geometry_elements_triga_netl.Reactor.CoreCellSpecs
-        Core cell whose grid-plate penetrations and outer material bound and
-        fill the channel.
-    element_specs : geometry_elements_triga_netl.Reactor.CoreCellSpecs.ElementSpecs
-        Movable element to place in the channel.
-
-    Returns
-    -------
-    openmc.Cell
-        Channel cell named by the core location and element. The caller sets
-        its translation.
-    """
-    element = element_specs.geometry
-    grid_plates = [grid_plate for grid_plate in (core_cell_specs.upper_grid_plate, core_cell_specs.lower_grid_plate)
-                   if grid_plate is not None]
-    assert grid_plates and all(grid_plate.penetrations for grid_plate in grid_plates), \
-        f"Movable element '{element.name}' requires a grid-plate penetration in each grid plate."
-    penetrations = [penetration for grid_plate in grid_plates for penetration in grid_plate.penetrations]
-    channel = penetrations[0]
-    assert all(isclose(a, b, rel_tol=TOL, abs_tol=TOL)
-               for penetration in penetrations
-               for a, b in zip((penetration.radius, penetration.x0, penetration.y0),
-                               (channel.radius, channel.x0, channel.y0))), \
-        f"Movable element '{element.name}' requires matching grid-plate penetrations."
-    outline_radius = _element_outline_radius(element, (channel.x0 - element_specs.x0,
-                                                       channel.y0 - element_specs.y0))
-    assert outline_radius <= channel.radius * (1.0 + TOL), \
-        f"Movable element '{element.name}' must fit within its grid-plate penetration."
-
-    bottom_z = element.bottom_pos if isinstance(element, PinCellStack) else 0.0
-    element_region = _build_element_region(element)
-    element_region &= +openmc.ZPlane(bottom_z) & -openmc.ZPlane(bottom_z + element.length)
-    channel_universe = openmc.Universe(cells=[
-        openmc.Cell(fill=build(element), region=element_region),
-        openmc.Cell(fill=core_cell_specs.outer_material.openmc_material, region=~element_region),
-    ])
-
-    return openmc.Cell(fill   = channel_universe,
-                       region = -openmc.ZCylinder(r=channel.radius, x0=channel.x0, y0=channel.y0),
-                       name   = f"{core_cell_specs.location} {element.name}")
-
-
-def _element_outline_radius(element: geometry_elements_triga_netl.Core.Element,
-                            center: Tuple[float, float]) -> float:
-    """Return the radius about a point that encloses an element's outline.
-
-    Parameters
-    ----------
-    element : geometry_elements_triga_netl.Core.Element
-        Native core element whose outline is measured.
-    center : Tuple[float, float]
-        ``(x, y)`` point in the element's native builder coordinates [cm].
-
-    Returns
-    -------
-    float
-        Radius [cm] about ``center`` of the circle enclosing the element's
-        finite region from ``_build_element_region``.
-    """
-    if isinstance(element, (FuelElement, GraphiteElement)):
-        return hypot(center[0], center[1]) + element.cladding.outer_radius
-
-    stack = element if isinstance(element, PinCellStack) else element.as_stack(bottom_pos=0.0)
-    return max(hypot(segment.element.x0 - center[0], segment.element.y0 - center[1]) +
-               segment.element.zones[-1].shape.outer_radius
-               for segment in stack.segments)
 
 
 def _build_element_region(element: geometry_elements_triga_netl.Core.Element) -> openmc.Region:

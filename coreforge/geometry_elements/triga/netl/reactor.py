@@ -701,28 +701,12 @@ class Reactor(GeometryElement):
 
         @dataclass(frozen=True)
         class ElementSpecs:
-            """Core-element geometry and placement within a lattice cell.
-
-            Attributes
-            ----------
-            geometry : CoreGeometry.Element
-                Element to place.
-            bottom_axial_position : float
-                Element bottom relative to the core centerline [cm].
-            x0 : float
-                Element center's x-coordinate in the lattice cell [cm].
-            y0 : float
-                Element center's y-coordinate in the lattice cell [cm].
-            movable : bool
-                Whether the element's axial position is set by the reactor,
-                as for control rods, rather than fixed by its geometry.
-            """
+            """Core-element geometry and placement within a lattice cell."""
 
             geometry: CoreGeometry.Element
             bottom_axial_position: float
             x0: float = 0.0
             y0: float = 0.0
-            movable: bool = False
 
         @dataclass(frozen=True)
         class PenetrationSpecs:
@@ -1068,7 +1052,7 @@ class Reactor(GeometryElement):
             Current elements, grid plates, fill material, and placements for
             the requested location. Ordinary elements are listed before the
             irradiator. The core's irradiator footprint determines which cells
-            receive the irradiator. Control rods are marked movable.
+            receive the irradiator.
         """
         assert location in self.core.full_map, f"Invalid core location '{location}'."
 
@@ -1084,9 +1068,6 @@ class Reactor(GeometryElement):
         if is_three_element_location:
             placements.append((irradiator, irradiator_offset))
 
-        control_rods = (self.core.transient_rod, self.core.regulating_rod,
-                        self.core.shim_1_rod, self.core.shim_2_rod)
-
         elements = []
         for element, offset in placements:
             bottom_axial_position = self.get_element_bottom_axial_position(element)
@@ -1097,7 +1078,6 @@ class Reactor(GeometryElement):
                 bottom_axial_position=bottom_axial_position,
                 x0=offset[0],
                 y0=offset[1],
-                movable=any(element is rod for rod in control_rods),
             ))
 
         return Reactor.CoreCellSpecs(
