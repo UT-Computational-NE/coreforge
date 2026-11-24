@@ -294,8 +294,8 @@ def test_hex_lattice_mpact_builder_y_oriented(hex_y_lattice, hex_lattice_mpact_s
     core = mpact_builder.build(geom_element, hex_lattice_mpact_specs).with_shared_materials()
     hex_width  = geom_element.pitch * sqrt(3.0) / 2.0
     hex_height = geom_element.pitch
-    assert isclose(core.mod_dim['X'], hex_width/2)
-    assert isclose(core.mod_dim['Y'], hex_height/2)
+    assert isclose(core.mod_dim['X'], relative_round(hex_width / 2))
+    assert isclose(core.mod_dim['Y'], relative_round(hex_height / 2))
     assert_allclose(core.mod_dim['Z'], [1.0, 3.0, 4.0])
     assert core.nx == 6
     assert core.ny == 6
