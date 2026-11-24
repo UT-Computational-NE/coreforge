@@ -5,6 +5,7 @@ from math import isclose, sqrt
 import openmc
 from numpy.testing import assert_allclose
 from mpactpy import RectangularPinMesh, GeneralCylindricalPinMesh, Pin
+from mpactpy.utils import relative_round
 
 from coreforge.geometry_elements import RectLattice, HexLattice, PinCellStack
 from coreforge.materials import unique_materials
@@ -268,8 +269,8 @@ def test_hex_lattice_mpact_builder_x_oriented(hex_x_lattice, hex_lattice_mpact_s
     core = mpact_builder.build(geom_element, hex_lattice_mpact_specs).with_shared_materials()
     hex_width  = geom_element.pitch
     hex_height = geom_element.pitch * sqrt(3.0) / 2.0
-    assert isclose(core.mod_dim['X'], hex_width/2)
-    assert isclose(core.mod_dim['Y'], hex_height/2)
+    assert isclose(core.mod_dim['X'], relative_round(hex_width / 2))
+    assert isclose(core.mod_dim['Y'], relative_round(hex_height / 2))
     assert_allclose(core.mod_dim['Z'], [1.0, 3.0, 4.0])
     assert core.nx == 6
     assert core.ny == 6
